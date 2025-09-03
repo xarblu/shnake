@@ -260,6 +260,8 @@ function update_apple() {
         # we need to make sure apple doesn't spawn inside the snake
         # it's not fatal if it does - just makes it impossible to collect
         # until snake moves away
+        # TODO: this will likely spin a bunch if there are only a few non-snake
+        # cells left...
         while true; do
             line="$(( RANDOM % LINES ))"
             column="$(( RANDOM % COLUMNS ))"
