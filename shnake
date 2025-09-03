@@ -1,15 +1,27 @@
 #!/usr/bin/env bash
 
-# printf wrapper that adds \n by default
-# and printf origin function
-function log() {
-    local fmt="${1}"
-    shift
-    local -a args=( "${@}" )
+# game state
 
-    # shellcheck disable=SC2059
-    printf "${FUNCNAME[1]}: ${fmt}\n" "${args[@]}" 1>&2
-}
+# set to whatever the last input direction was
+# LEFT, RIGHT, UP, DOWN
+declare -g NEXT_DIRECTION='RIGHT'
+
+# should quit on q press
+declare -g QUIT='false'
+
+# SNAKE is an array with its head at index 0
+# each entry consists of LINE:COLUMN
+declare -ga SNAKE=( 0:2 0:1 0:0 )
+# init should stay ion sync with NEXT_DIRECTION
+declare -g SNAKE_DIRECTION="${NEXT_DIRECTION}"
+
+# apple consisting of line:column:ttl
+declare -g APPLE
+
+# score count +1 for each apple
+declare -g SCORE=0
+
+# game logic
 
 # log stacktrace and exit with message
 function die() {
@@ -48,13 +60,213 @@ function parse_args() {
     done
 }
 
+# wait until next game tick
+# TODO: scale with snake length
+do_tick() {
+    # we use read here because
+    # a) it's builtin (sleep is not unless you have it as loadable plugin)
+    # b) it allows fractional timeout
+    # c) it slurps up input with -s to not mess with screen
+    read -r -s -t 0.3
+}
+
+# input handler
+# this reads everything from STDIN and updates
+# NEXT_DIRECTION and QUIT
+function handle_input() {
+    while true; do
+        local key
+
+        # get 1 character, regular ascii
+        read -r -s -n 1 -t 0.01 key
+
+        # timeout - leave unchanged
+        if (( ${?} > 128 )); then
+            return 0
+        fi
+
+        # if escaped read 2 more chars, arrow keys
+        if [[ "${key}" == $'\u1b' ]]; then
+            # if timeout is hit here key will just be treated as invalid
+            # - which it probably is with just the escape char
+            read -r -s -n 2 -t 0.01 key
+        fi
+
+        case "${key}" in
+            'q')
+                QUIT='true'
+                ;;
+            '[A')
+                NEXT_DIRECTION='UP'
+                ;;
+            '[B')
+                NEXT_DIRECTION='DOWN'
+                ;;
+            '[D')
+                NEXT_DIRECTION='LEFT'
+                ;;
+            '[C')
+                NEXT_DIRECTION='RIGHT'
+                ;;
+        esac
+    done
+}
+
+# draws the scene
+function draw_scene() {
+    # buffer holding a char for each cell
+    local -A zbuf=()
+    local line column
+    local element _
+
+    # init empty
+    for (( line = 0; line < LINES; line++ )); do
+        for (( column = 0; column < COLUMNS; column++ )); do
+            zbuf["${line}:${column}"]=' '
+        done
+    done
+
+    # add snake
+    for element in "${SNAKE[@]}"; do
+        IFS=: read -r line column <<<"${element}"
+        zbuf["${line}:${column}"]='#'
+    done
+
+    # add apple
+    if [[ -n "${APPLE}" ]]; then
+        IFS=: read -r line column _ <<<"${APPLE}"
+        zbuf["${line}:${column}"]='@'
+    fi
+
+    # some assertions
+    if (( ${#zbuf[@]} != LINES * COLUMNS )); then
+        die "bad zbuf"
+    fi
+
+    # TODO: this causes scrollback buffer to be filled *a lot*
+    # alternative could be \e[3J... but that clears scrollback fully
+    # clear screen...
+    printf "\e[2J"
+
+    # ...and draw buffer
+    for (( line = 0; line < LINES; line++ )); do
+        for (( column = 0; column < COLUMNS; column++ )); do
+            printf "%c" "${zbuf["${line}:${column}"]}"
+        done
+        if (( line < LINES - 1 )); then
+            printf "\n"
+        fi
+    done
+}
+
+# end game handler
+function end_game() {
+    printf "GAME OVER!\n"
+    printf "SCORE: %d\n" "${SCORE}"
+    exit 0
+}
+
+# SNAKE update event
+function update_snake() {
+    # changing 180° is not allowed, keep SNAKE_DIRECTION in that case
+    case "${SNAKE_DIRECTION}->${NEXT_DIRECTION}" in
+        'LEFT->RIGHT'|'RIGHT->LEFT'|'UP->DOWN'|'DOWN->UP')
+            NEXT_DIRECTION="${SNAKE_DIRECTION}"
+            ;;
+    esac
+
+    local line column
+
+    # calculate next head position
+    IFS=: read -r line column <<<"${SNAKE[0]}"
+    
+    case "${NEXT_DIRECTION}" in
+        LEFT) (( column-- )) ;;
+        RIGHT) (( column++ )) ;;
+        UP) (( line-- )) ;;
+        DOWN) (( line++ )) ;;
+    esac
+
+    # check if head hits a wall
+    if (( line < 0 )); then
+        end_game
+    elif (( line >= LINES )); then
+        end_game
+    elif (( column < 0 )); then
+        end_game
+    elif (( column >= COLUMNS )); then
+        end_game
+    fi
+
+    # check if head hits body
+    local element
+    for element in "${SNAKE[@]}"; do
+        if [[ "${element}" == "${line}:${column}" ]]; then
+            end_game 
+        fi
+    done
+
+    # check if we got an apple
+    local apple='false'
+    if [[ -n "${APPLE}" ]]; then
+        local apple_line apple_column _
+        IFS=: read -r apple_line apple_column _ <<<"${APPLE}"
+        if (( line == apple_line )) && (( column == apple_column )); then       
+            apple='true'
+            APPLE=''
+            (( SCORE++ ))
+        fi
+    fi
+
+    # commit update
+    SNAKE_DIRECTION="${NEXT_DIRECTION}"
+    SNAKE=( "${line}:${column}" "${SNAKE[@]}" )
+
+    # remove tail element if we didn't get an apple
+    if ! "${apple}"; then
+        unset "SNAKE[$(( ${#SNAKE[*]} - 1 ))]"
+    fi
+}
+
+# spawn and despawn apples
+function update_apple() {
+    local line column ttl
+
+    # spawn new apple
+    if [[ -z "${APPLE}" ]]; then
+        line="$(( RANDOM % LINES ))"
+        column="$(( RANDOM % COLUMNS ))"
+        ttl="$(( RANDOM % 100 + 30 ))"
+        APPLE="${line}:${column}:${ttl}"
+        return 0
+    fi
+
+    # decrement ttl of existing apple
+    IFS=: read -r line column ttl <<<"${APPLE}"
+    (( ttl-- ))
+    APPLE="${line}:${column}:${ttl}"
+
+    # despawn apple if ttl reaches 0
+    if (( ttl <= 0 )); then
+        APPLE=''
+    fi
+}
+
 function main() {
     parse_args "${@}"
 
-    [[ -z "${LINES}" ]] && die "LINES is unset"
-    [[ -z "${COLUMNS}" ]] && die "COLUMNS is unset"
+    [[ -z "${COLUMNS}" ]] && die 'COLUMNS is unset'
+    [[ -z "${LINES}" ]] && die 'LINES is unset'
 
-    return 0
+    while ! "${QUIT}"; do
+        do_tick
+        handle_input
+        update_snake
+        update_apple
+        draw_scene
+    done
+
+    end_game
 }
 
 main "${@}"
