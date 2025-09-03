@@ -56,8 +56,16 @@ function parse_args() {
                 help
                 exit 0
                 ;;
+            -*)
+                printf "Unknown flag: %s\n" "${1}"
+                help
+                exit 1
+                ;;
             *)
                 # positional args
+                printf "Unknown positional argument: %s\n" "${1}"
+                help
+                exit 1
                 ;;
         esac
         shift
