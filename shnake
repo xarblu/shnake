@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+
+# printf wrapper that adds \n by default
+# and printf origin function
+function log() {
+    local fmt="${1}"
+    shift
+    local -a args=( "${@}" )
+
+    # shellcheck disable=SC2059
+    printf "${FUNCNAME[1]}: ${fmt}\n" "${args[@]}" 1>&2
+}
+
+# log stacktrace and exit with message
+function die() {
+    local msg="${1}"
+    printf "Fatal error occured in %s: %s\n\n" \
+        "${FUNCNAME[1]}" "${msg}" 1>&2
+
+    printf "Stacktrace:\n" 1>&2
+    local i
+    for (( i = ${#FUNCNAME[@]} - 1; i >= 0; i-- )); do
+        printf "called %s() in %s line %d\n" \
+            "${FUNCNAME[${i}]}" \
+            "${BASH_SOURCE[${i}]}" \
+            "${BASH_LINENO[${i}]}" \
+            1>&2
+    done
+}
+
+function help() {
+    printf "Usage: %s\n" "${BASH_SOURCE[0]}"
+    printf "  -h|--help  Print help\n"
+}
+
+function parse_args() {
+    while (( ${#} > 0 )); do
+        case "${1}" in
+            -h|--help)
+                help
+                exit 0
+                ;;
+            *)
+                # positional args
+                ;;
+        esac
+        shift
+    done
+}
+
+function main() {
+    parse_args "${@}"
+
+    [[ -z "${LINES}" ]] && die "LINES is unset"
+    [[ -z "${COLUMNS}" ]] && die "COLUMNS is unset"
+
+    return 0
+}
+
+main "${@}"
