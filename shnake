@@ -21,6 +21,9 @@ declare -g APPLE
 # score count +1 for each apple
 declare -g SCORE=0
 
+# enable fancy mode
+declare -g FANCY='false'
+
 # game logic
 
 # log stacktrace and exit with message
@@ -44,6 +47,7 @@ function die() {
 function help() {
     printf "Usage: %s\n" "${BASH_SOURCE[0]}"
     printf "  -h|--help   Print help\n"
+    printf "  -f|--fancy  Enable fancy mode (colors and animations)\n"
     printf "\n"
     printf "CONTROLS\n"
     printf "  arrow keys  Change direction\n"
@@ -56,6 +60,9 @@ function parse_args() {
             -h|--help)
                 help
                 exit 0
+                ;;
+            -f|--fancy)
+                FANCY='true'
                 ;;
             -*)
                 printf "Unknown flag: %s\n" "${1}"
@@ -156,19 +163,31 @@ function draw_scene() {
     for (( i = 0; i < ${#score}; i++)); do
         (( line=(LINES - 1) ))
         (( column=(COLUMNS - 2 - ${#score} + i) ))
-        zbuf["${line}:${column}"]="${score:${i}:1}"
+        if "${FANCY}"; then
+            zbuf["${line}:${column}"]="\e[36;1m${score:${i}:1}\e[0m"
+        else
+            zbuf["${line}:${column}"]="${score:${i}:1}"
+        fi
     done
 
     # add snake
     for element in "${SNAKE[@]}"; do
         IFS=: read -r line column <<<"${element}"
-        zbuf["${line}:${column}"]='#'
+        if "${FANCY}"; then
+            zbuf["${line}:${column}"]="\e[32;1m#\e[0m"
+        else
+            zbuf["${line}:${column}"]='#'
+        fi
     done
 
     # add apple
     if [[ -n "${APPLE}" ]]; then
         IFS=: read -r line column _ <<<"${APPLE}"
-        zbuf["${line}:${column}"]='@'
+        if "${FANCY}"; then
+            zbuf["${line}:${column}"]="\e[31;5m@\e[0m"
+        else
+            zbuf["${line}:${column}"]='@'
+        fi
     fi
 
     # some assertions
@@ -184,7 +203,7 @@ function draw_scene() {
     # ...and draw buffer
     for (( line = 0; line < LINES; line++ )); do
         for (( column = 0; column < COLUMNS; column++ )); do
-            printf "%c" "${zbuf["${line}:${column}"]}"
+            printf "%b" "${zbuf["${line}:${column}"]}"
         done
         if (( line < LINES - 1 )); then
             printf "\n"
