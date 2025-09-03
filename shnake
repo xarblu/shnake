@@ -248,7 +248,10 @@ function update_apple() {
     if [[ -z "${APPLE}" ]]; then
         line="$(( RANDOM % LINES ))"
         column="$(( RANDOM % COLUMNS ))"
-        ttl="$(( RANDOM % 100 + 30 ))"
+        # ttl is in the range (LINES+COLUMNS)/2 to (LINES+COLUMNS)
+        # this should be a reasonable heuristic and allow reaching
+        # apples on the other side of the field
+        ttl="$(( RANDOM % (LINES + COLUMNS) / 2 + (LINES + COLUMNS) / 2 ))"
         APPLE="${line}:${column}:${ttl}"
         return 0
     fi
