@@ -257,8 +257,33 @@ function update_apple() {
 
     # spawn new apple
     if [[ -z "${APPLE}" ]]; then
-        line="$(( RANDOM % LINES ))"
-        column="$(( RANDOM % COLUMNS ))"
+        # we need to make sure apple doesn't spawn inside the snake
+        # it's not fatal if it does - just makes it impossible to collect
+        # until snake moves away
+        while true; do
+            line="$(( RANDOM % LINES ))"
+            column="$(( RANDOM % COLUMNS ))"
+
+            local element snake_line snake_column
+            local in_snake='false'
+            for element in "${SNAKE[@]}"; do
+                if [[ "${line}" != "${snake_line}" ]]; then
+                    continue
+                fi
+                if [[ "${column}" != "${snake_column}" ]]; then
+                    continue
+                fi
+                
+                in_snake='true'
+                break
+            done
+
+            if ! "${in_snake}"; then
+                break
+            fi
+        done
+        
+
         # ttl is in the range (LINES+COLUMNS)/2 to (LINES+COLUMNS)
         # this should be a reasonable heuristic and allow reaching
         # apples on the other side of the field
