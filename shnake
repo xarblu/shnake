@@ -38,6 +38,7 @@ function die() {
             "${BASH_LINENO[${i}]}" \
             1>&2
     done
+    exit 1
 }
 
 function help() {
@@ -260,31 +261,28 @@ function update_apple() {
         # we need to make sure apple doesn't spawn inside the snake
         # it's not fatal if it does - just makes it impossible to collect
         # until snake moves away
-        # TODO: this will likely spin a bunch if there are only a few non-snake
-        # cells left...
-        while true; do
-            line="$(( RANDOM % LINES ))"
-            column="$(( RANDOM % COLUMNS ))"
+        local cells cells_free cell_apple
+        (( cells=(LINES * COLUMNS) ))
+        (( cells_free=(cells - ${#SNAKE[*]}) ))
+        (( cell_apple=(RANDOM % cells_free) ))
 
-            local element snake_line snake_column
-            local in_snake='false'
-            for element in "${SNAKE[@]}"; do
-                if [[ "${line}" != "${snake_line}" ]]; then
+        for (( line=0; line < LINES; line++ )); do
+            for (( column=0; column < COLUMNS; column++ )); do
+                # snake already occupies cell
+                if [[ " ${SNAKE[*]} " == *" ${line}:${column} "* ]]; then
                     continue
                 fi
-                if [[ "${column}" != "${snake_column}" ]]; then
-                    continue
+
+                if (( cell_apple == 0 )); then
+                    break 2
                 fi
-                
-                in_snake='true'
-                break
+
+                (( cell_apple-- ))
             done
-
-            if ! "${in_snake}"; then
-                break
-            fi
         done
-        
+
+        (( line == LINES )) && die "line too big"
+        (( column == COLUMNS )) && die "column too big"
 
         # ttl is in the range (LINES+COLUMNS)/2 to (LINES+COLUMNS)
         # this should be a reasonable heuristic and allow reaching
