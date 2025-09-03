@@ -73,13 +73,24 @@ function parse_args() {
 }
 
 # wait until next game tick
-# TODO: scale with snake length
 do_tick() {
     # we use read here because
     # a) it's builtin (sleep is not unless you have it as loadable plugin)
     # b) it allows fractional timeout
     # c) it slurps up input with -s to not mess with screen
-    read -r -s -t 0.3
+    if (( SCORE >= 25 )); then
+        read -r -s -t 0.15
+    elif (( SCORE >= 20 )); then
+        read -r -s -t 0.18
+    elif (( SCORE >= 15 )); then
+        read -r -s -t 0.21
+    elif (( SCORE >= 10 )); then
+        read -r -s -t 0.24
+    elif (( SCORE >= 5 )); then
+        read -r -s -t 0.27
+    else
+        read -r -s -t 0.3
+    fi
 }
 
 # input handler
