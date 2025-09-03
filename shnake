@@ -42,7 +42,11 @@ function die() {
 
 function help() {
     printf "Usage: %s\n" "${BASH_SOURCE[0]}"
-    printf "  -h|--help  Print help\n"
+    printf "  -h|--help   Print help\n"
+    printf "\n"
+    printf "CONTROLS\n"
+    printf "  arrow keys  Change direction\n"
+    printf "           q  Quit\n"
 }
 
 function parse_args() {
