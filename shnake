@@ -150,6 +150,15 @@ function draw_scene() {
         done
     done
 
+    # add scoreboard to bottom right corner
+    local score="SCORE: ${SCORE}"
+    local i
+    for (( i = 0; i < ${#score}; i++)); do
+        (( line=(LINES - 1) ))
+        (( column=(COLUMNS - 2 - ${#score} + i) ))
+        zbuf["${line}:${column}"]="${score:${i}:1}"
+    done
+
     # add snake
     for element in "${SNAKE[@]}"; do
         IFS=: read -r line column <<<"${element}"
