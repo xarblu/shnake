@@ -57,13 +57,13 @@ function log() {
 # log stacktrace and exit with message
 function die() {
     local msg="${1}"
-    log "Fatal error occured in %s: %s" \
+    log 'Fatal error occured in %s: %s' \
         "${FUNCNAME[1]}" "${msg}"
 
-    log "Stacktrace:"
+    log 'Stacktrace:'
     local i
     for (( i = ${#FUNCNAME[@]} - 1; i >= 0; i-- )); do
-        log "called %s() in %s line %d" \
+        log 'called %s() in %s line %d' \
             "${FUNCNAME[${i}]}" \
             "${BASH_SOURCE[${i}]}" \
             "${BASH_LINENO[${i}]}"
@@ -72,14 +72,14 @@ function die() {
 }
 
 function help() {
-    printf "Usage: %s\n" "${BASH_SOURCE[0]}"
-    printf "  -h|--help      Print help\n"
-    printf "  -f|--fancy     Enable fancy mode (colors and animations)\n"
-    printf "  -l|--log FILE  Enable logging to FILE\n"
-    printf "\n"
-    printf "CONTROLS\n"
-    printf "  arrow keys     Change direction\n"
-    printf "           q     Quit\n"
+    printf 'Usage: %s\n' "${BASH_SOURCE[0]}"
+    printf '  -h|--help      Print help\n'
+    printf '  -f|--fancy     Enable fancy mode (colors and animations)\n'
+    printf '  -l|--log FILE  Enable logging to FILE\n'
+    printf '\n'
+    printf 'CONTROLS\n'
+    printf '  arrow keys     Change direction\n'
+    printf '           q     Quit\n'
 }
 
 function parse_args() {
@@ -94,7 +94,7 @@ function parse_args() {
                 ;;
             -l|--log)
                 if [[ -z "${2}" ]]; then
-                    printf "%s requires an argument: FILE\n" "${1}"
+                    printf '%s requires an argument: FILE\n' "${1}"
                     help
                     exit 1
                 fi
@@ -102,13 +102,13 @@ function parse_args() {
                 shift
                 ;;
             -*)
-            printf "Unknown flag: %s\n" "${1}"
+            printf 'Unknown flag: %s\n' "${1}"
             help
             exit 1
                 ;;
             *)
                 # positional args
-                printf "Unknown positional argument: %s\n" "${1}"
+                printf 'Unknown positional argument: %s\n' "${1}"
                 help
                 exit 1
                 ;;
@@ -407,7 +407,7 @@ function update_snake() {
         local apple_line apple_column _
         IFS=: read -r apple_line apple_column _ <<<"${APPLE}"
         if (( line == apple_line )) && (( column == apple_column )); then       
-            log "Apple collected"
+            log 'Apple collected'
             apple='true'
             APPLE=''
             (( SCORE++ ))
@@ -458,8 +458,8 @@ function update_apple() {
             done
         done
 
-        (( line == SLINES )) && die "line too big"
-        (( column == SCOLUMNS )) && die "column too big"
+        (( line == SLINES )) && die 'line too big'
+        (( column == SCOLUMNS )) && die 'column too big'
 
         # ttl is in the range (SLINES+SCOLUMNS)/2 to (SLINES+SCOLUMNS)
         # this should be a reasonable heuristic and allow reaching
@@ -485,7 +485,7 @@ function update_apple() {
 
     # despawn apple if ttl reaches 0
     if (( ttl <= 0 )); then
-        log "Apple despawned"
+        log 'Despawning apple with exceeded TTL'
         APPLE=''
     fi
 }
