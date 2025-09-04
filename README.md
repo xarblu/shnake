@@ -19,7 +19,7 @@ $ bash <(curl https://raw.githubusercontent.com/xarblu/shnake/refs/heads/main/sh
 ## Notes
 
 Technically we call a single external command (`stty`) to disable tty input echo.
-Because it involves `ioctl()` calls I'm not sure this is possible in just BASH.
+Because it involves `ioctl()` calls I'm not sure this is possible in just BASH.  
 The `read -s` builtin somehow achieves no-echo - so *BASH can disable echo* - it's just not
 a feature available to us outside of `read`.
 
