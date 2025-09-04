@@ -222,24 +222,31 @@ function destroy_scene() {
 }
 
 # draws the scene as defined in ZBUF
+# out-of-bounds cells are dropped
+# undefined cells are empty
+# ZBUF will be cleared after display
 function draw_scene() {
-    # some assertions
-    if (( ${#ZBUF[@]} != SLINES * SCOLUMNS )); then
-        die "bad ZBUF size"
-    fi
-
     log 'Drawing buffer with dimensions: %dx%d' \
-        "${SLINES}" "${SCOLUMNS}"
+        "${LINES}" "${COLUMNS}"
 
     # draw buffer
-    for (( line = 0; line < SLINES; line++ )); do
+    for (( line = 0; line < LINES; line++ )); do
         printf '\e[%d;%dH\e[0K' "$(( line + 1 ))" 1
-        for (( column = 0; column < SCOLUMNS; column++ )); do
-            printf '%b' "${ZBUF["${line}:${column}"]}"
+        for (( column = 0; column < COLUMNS; column++ )); do
+            local cell="${ZBUF["${line}:${column}"]}"
+            if [[ -n "${cell}" ]]; then
+                printf '%b' "${cell}"
+            else
+                printf ' '
+            fi
         done
     done
 
-    # update SLINE/SCOLUMNS
+    # clear ZBUF
+    unset ZBUF
+    declare -gA ZBUF
+
+    # update SLINES/SCOLUMNS
     SLINES="${LINES}"
     SCOLUMNS="${COLUMNS}"
 }
@@ -248,15 +255,6 @@ function draw_scene() {
 function update_scene() {
     local line column
     local element _
-
-    # init empty
-    unset ZBUF
-    declare -gA ZBUF
-    for (( line = 0; line < SLINES; line++ )); do
-        for (( column = 0; column < SCOLUMNS; column++ )); do
-            ZBUF["${line}:${column}"]=' '
-        done
-    done
 
     # add scoreboard to bottom right corner
     local score="SCORE: ${SCORE}"
@@ -303,15 +301,6 @@ function end_screen() {
 
     local line column
     local line_txt char
-
-    # init empty
-    unset ZBUF
-    declare -gA ZBUF
-    for (( line = 0; line < SLINES; line++ )); do
-        for (( column = 0; column < SCOLUMNS; column++ )); do
-            ZBUF["${line}:${column}"]=' '
-        done
-    done
 
     line="${offset_line}"
     while IFS=$'\0' read -r line_txt; do
@@ -484,6 +473,15 @@ function update_apple() {
     IFS=: read -r line column ttl <<<"${APPLE}"
     (( ttl-- ))
     APPLE="${line}:${column}:${ttl}"
+
+    # despawn apple if out-of-bounds
+    if (( line >= SLINES )); then
+        log 'Despawning out-of-bounds apple'
+        APPLE=''
+    elif (( column >= SCOLUMNS )); then
+        log 'Despawning out-of-bounds apple'
+        APPLE=''
+    fi
 
     # despawn apple if ttl reaches 0
     if (( ttl <= 0 )); then
