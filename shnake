@@ -24,34 +24,62 @@ declare -g SCORE=0
 # enable fancy mode
 declare -g FANCY='false'
 
+# enable logging and write to file specified here
+declare -g LOG
+
+# Z buffer for each cell
+# keys are line:column and value is a single (printing) char
+# calls to draw_scene will draw it to the screen
+declare -gA ZBUF
+
+# Stable LINES/COLUMNS
+# if we get a size change mid-draw that's bad
+# these stable versions pick up LINES/COLUMNS after draw_scene completes
+declare -g SLINES
+declare -g SCOLUMNS
+
 # game logic
+
+# log to file specified in LOG
+# we can't log to STDERR because that messes with the screen
+# and we can't redirect STDERR because checkwinsize requires 
+# STDERR to be a terminal
+function log() {
+    [[ -z "${LOG}" ]] && return
+
+    local fmt="${FUNCNAME[1]}: ${1}\n"
+    shift
+
+    # shellcheck disable=SC2059 # this is the wanted behaviour
+    printf "${fmt}" "${@}" 1>>"${LOG}"
+}
 
 # log stacktrace and exit with message
 function die() {
     local msg="${1}"
-    printf "Fatal error occured in %s: %s\n\n" \
-        "${FUNCNAME[1]}" "${msg}" 1>&2
+    log "Fatal error occured in %s: %s" \
+        "${FUNCNAME[1]}" "${msg}"
 
-    printf "Stacktrace:\n" 1>&2
+    log "Stacktrace:"
     local i
     for (( i = ${#FUNCNAME[@]} - 1; i >= 0; i-- )); do
-        printf "called %s() in %s line %d\n" \
+        log "called %s() in %s line %d" \
             "${FUNCNAME[${i}]}" \
             "${BASH_SOURCE[${i}]}" \
-            "${BASH_LINENO[${i}]}" \
-            1>&2
+            "${BASH_LINENO[${i}]}"
     done
     exit 1
 }
 
 function help() {
     printf "Usage: %s\n" "${BASH_SOURCE[0]}"
-    printf "  -h|--help   Print help\n"
-    printf "  -f|--fancy  Enable fancy mode (colors and animations)\n"
+    printf "  -h|--help      Print help\n"
+    printf "  -f|--fancy     Enable fancy mode (colors and animations)\n"
+    printf "  -l|--log FILE  Enable logging to FILE\n"
     printf "\n"
     printf "CONTROLS\n"
-    printf "  arrow keys  Change direction\n"
-    printf "           q  Quit\n"
+    printf "  arrow keys     Change direction\n"
+    printf "           q     Quit\n"
 }
 
 function parse_args() {
@@ -64,10 +92,19 @@ function parse_args() {
             -f|--fancy)
                 FANCY='true'
                 ;;
+            -l|--log)
+                if [[ -z "${2}" ]]; then
+                    printf "%s requires an argument: FILE\n" "${1}"
+                    help
+                    exit 1
+                fi
+                LOG="${2}"
+                shift
+                ;;
             -*)
-                printf "Unknown flag: %s\n" "${1}"
-                help
-                exit 1
+            printf "Unknown flag: %s\n" "${1}"
+            help
+            exit 1
                 ;;
             *)
                 # positional args
@@ -146,13 +183,26 @@ function handle_input() {
 # initialise a scene
 # should be called on startup and SIGWINCH
 function init_scene() {
+    # initialise LINES/COLUMNS by calling "external" command
+    (:)
+
+    [[ -z "${COLUMNS}" ]] && die 'COLUMNS is unset'
+    [[ -z "${LINES}" ]] && die 'LINES is unset'
+
+    log 'Window size update: LINES: %d COLUMNS: %d' \
+        "${LINES}" "${COLUMNS}"
+
+    # initially set SLINES/SCOLUMNS
+    : "${SLINES:="${LINES}"}"
+    : "${SCOLUMNS:="${COLUMNS}"}"
+
     # hide cursor
     printf '\e[?25l'
 
     # allocate entire screen worth of lines
     # last line does not need \n
     local line
-    for (( line = 0; line < LINES - 1; line++ )); do
+    for (( line = 0; line < SLINES - 1; line++ )); do
         printf '\n'
     done
 }
@@ -163,7 +213,7 @@ function init_scene() {
 function destroy_scene() {
     # deallocate screen
     local line
-    for (( line = 0; line < LINES; line++ )); do
+    for (( line = 0; line < SLINES; line++ )); do
         printf '\e[2K\e[1F'
     done
 
@@ -171,17 +221,40 @@ function destroy_scene() {
     printf '\e[?25h'
 }
 
-# draws the scene
+# draws the scene as defined in ZBUF
 function draw_scene() {
-    # buffer holding a char for each cell
-    local -A zbuf=()
+    # some assertions
+    if (( ${#ZBUF[@]} != SLINES * SCOLUMNS )); then
+        die "bad ZBUF size"
+    fi
+
+    log 'Drawing buffer with dimensions: %dx%d' \
+        "${SLINES}" "${SCOLUMNS}"
+
+    # draw buffer
+    for (( line = 0; line < SLINES; line++ )); do
+        printf '\e[%d;%dH\e[0K' "$(( line + 1 ))" 1
+        for (( column = 0; column < SCOLUMNS; column++ )); do
+            printf '%b' "${ZBUF["${line}:${column}"]}"
+        done
+    done
+
+    # update SLINE/SCOLUMNS
+    SLINES="${LINES}"
+    SCOLUMNS="${COLUMNS}"
+}
+
+# regular in-game scene update
+function update_scene() {
     local line column
     local element _
 
     # init empty
-    for (( line = 0; line < LINES; line++ )); do
-        for (( column = 0; column < COLUMNS; column++ )); do
-            zbuf["${line}:${column}"]=' '
+    unset ZBUF
+    declare -gA ZBUF
+    for (( line = 0; line < SLINES; line++ )); do
+        for (( column = 0; column < SCOLUMNS; column++ )); do
+            ZBUF["${line}:${column}"]=' '
         done
     done
 
@@ -189,12 +262,12 @@ function draw_scene() {
     local score="SCORE: ${SCORE}"
     local i
     for (( i = 0; i < ${#score}; i++)); do
-        (( line=(LINES - 1) ))
-        (( column=(COLUMNS - 2 - ${#score} + i) ))
+        (( line=(SLINES - 1) ))
+        (( column=(SCOLUMNS - 2 - ${#score} + i) ))
         if "${FANCY}"; then
-            zbuf["${line}:${column}"]="\e[36;1m${score:${i}:1}\e[0m"
+            ZBUF["${line}:${column}"]="\e[36;1m${score:${i}:1}\e[0m"
         else
-            zbuf["${line}:${column}"]="${score:${i}:1}"
+            ZBUF["${line}:${column}"]="${score:${i}:1}"
         fi
     done
 
@@ -202,9 +275,9 @@ function draw_scene() {
     for element in "${SNAKE[@]}"; do
         IFS=: read -r line column <<<"${element}"
         if "${FANCY}"; then
-            zbuf["${line}:${column}"]="\e[32;1m#\e[0m"
+            ZBUF["${line}:${column}"]="\e[32;1m#\e[0m"
         else
-            zbuf["${line}:${column}"]='#'
+            ZBUF["${line}:${column}"]='#'
         fi
     done
 
@@ -212,29 +285,90 @@ function draw_scene() {
     if [[ -n "${APPLE}" ]]; then
         IFS=: read -r line column _ <<<"${APPLE}"
         if "${FANCY}"; then
-            zbuf["${line}:${column}"]="\e[31;5m@\e[0m"
+            ZBUF["${line}:${column}"]="\e[31;5m@\e[0m"
         else
-            zbuf["${line}:${column}"]='@'
+            ZBUF["${line}:${column}"]='@'
         fi
     fi
 
-    # some assertions
-    if (( ${#zbuf[@]} != LINES * COLUMNS )); then
-        die "bad zbuf"
-    fi
+    draw_scene
+}
 
-    # draw buffer
-    for (( line = 0; line < LINES; line++ )); do
-        printf '\e[%d;%dH\e[0K' "$(( line + 1 ))" 1
-        for (( column = 0; column < COLUMNS; column++ )); do
-            printf '%b' "${zbuf["${line}:${column}"]}"
+# write end screen to ZBUF
+# reading screen data from stdin
+function end_screen() {
+    # line/column where screen starts to draw
+    local offset_line="${1:-0}"
+    local offset_column="${2:-0}"
+
+    local line column
+    local line_txt char
+
+    # init empty
+    unset ZBUF
+    declare -gA ZBUF
+    for (( line = 0; line < SLINES; line++ )); do
+        for (( column = 0; column < SCOLUMNS; column++ )); do
+            ZBUF["${line}:${column}"]=' '
         done
+    done
+
+    line="${offset_line}"
+    while IFS=$'\0' read -r line_txt; do
+        local char
+        column="${offset_column}"
+        while IFS=$'\0' read -r -n 1 char; do
+            if [[ -z "${char}" ]]; then
+                break
+            fi
+            ZBUF["${line}:${column}"]="${char}"
+            (( column++ ))
+        done <<<"${line_txt}"
+        (( line++ ))
     done
 }
 
 # end game handler
-# TODO: end screen
 function end_game() {
+    local line column
+
+    # end screen
+    # size required to display full end screen
+    local height=8
+    local width=50
+
+    # if you have the space you get the full experience
+    if (( SLINES > height )) && (( SCOLUMNS > width )); then
+        log "Displaying full end screen"
+        end_screen \
+        $(( (SLINES - height) / 2 )) \
+        $(( (SCOLUMNS - width) / 2 )) \
+        <<EOF
+  ___   __   _  _  ____     __   _  _  ____  ____ 
+ / __) / _\\ ( \\/ )(  __)   /  \\ / )( \\(  __)(  _ \\
+( (_ \\/    \\/ \\/ \\ ) _)   (  O )\\ \\/ / ) _)  )   /
+ \\___/\\_/\\_/\\_)(_/(____)   \\__/  \\__/ (____)(__\\_)
+
+SCORE: ${SCORE}
+
+PRESS ANY KEY TO QUIT
+EOF
+    # else a small simple one that hopefully fits
+    # (if it doesn't what are you doing in such a small terminal?)
+    else
+        log "Displaying minimal end screen"
+        end_screen \
+        <<EOF
+GAME OVER
+SCORE: ${SCORE}
+PRESS ANY KEY TO QUIT
+EOF
+    fi
+
+    draw_scene
+
+    # any key to exit
+    read -r -n 1
     exit 0
 }
 
@@ -262,11 +396,11 @@ function update_snake() {
     # check if head hits a wall
     if (( line < 0 )); then
         end_game
-    elif (( line >= LINES )); then
+    elif (( line >= SLINES )); then
         end_game
     elif (( column < 0 )); then
         end_game
-    elif (( column >= COLUMNS )); then
+    elif (( column >= SCOLUMNS )); then
         end_game
     fi
 
@@ -284,6 +418,7 @@ function update_snake() {
         local apple_line apple_column _
         IFS=: read -r apple_line apple_column _ <<<"${APPLE}"
         if (( line == apple_line )) && (( column == apple_column )); then       
+            log "Apple collected"
             apple='true'
             APPLE=''
             (( SCORE++ ))
@@ -310,12 +445,17 @@ function update_apple() {
         # it's not fatal if it does - just makes it impossible to collect
         # until snake moves away
         local cells cells_free cell_apple
-        (( cells=(LINES * COLUMNS) ))
+        (( cells=(SLINES * SCOLUMNS) ))
         (( cells_free=(cells - ${#SNAKE[*]}) ))
         (( cell_apple=(RANDOM % cells_free) ))
 
-        for (( line=0; line < LINES; line++ )); do
-            for (( column=0; column < COLUMNS; column++ )); do
+        log 'Spawning new apple'
+        log 'Total cells: %d' "${cells}"
+        log 'Free cells: %d' "${cells_free}"
+        log 'Apple cell: %d' "${cell_apple}"
+
+        for (( line=0; line < SLINES; line++ )); do
+            for (( column=0; column < SCOLUMNS; column++ )); do
                 # snake already occupies cell
                 if [[ " ${SNAKE[*]} " == *" ${line}:${column} "* ]]; then
                     continue
@@ -329,13 +469,13 @@ function update_apple() {
             done
         done
 
-        (( line == LINES )) && die "line too big"
-        (( column == COLUMNS )) && die "column too big"
+        (( line == SLINES )) && die "line too big"
+        (( column == SCOLUMNS )) && die "column too big"
 
-        # ttl is in the range (LINES+COLUMNS)/2 to (LINES+COLUMNS)
+        # ttl is in the range (SLINES+SCOLUMNS)/2 to (SLINES+SCOLUMNS)
         # this should be a reasonable heuristic and allow reaching
         # apples on the other side of the field
-        ttl="$(( RANDOM % (LINES + COLUMNS) / 2 + (LINES + COLUMNS) / 2 ))"
+        ttl="$(( RANDOM % (SLINES + SCOLUMNS) / 2 + (SLINES + SCOLUMNS) / 2 ))"
         APPLE="${line}:${column}:${ttl}"
         return 0
     fi
@@ -347,6 +487,7 @@ function update_apple() {
 
     # despawn apple if ttl reaches 0
     if (( ttl <= 0 )); then
+        log "Apple despawned"
         APPLE=''
     fi
 }
@@ -356,12 +497,6 @@ function main() {
 
     # required shell options
     shopt -s checkwinsize
-
-    # initialise LINES/COLUMNS by calling "external" command
-    (:)
-
-    [[ -z "${COLUMNS}" ]] && die 'COLUMNS is unset'
-    [[ -z "${LINES}" ]] && die 'LINES is unset'
 
     # setup scene handlers and init
     trap init_scene WINCH
@@ -373,7 +508,7 @@ function main() {
         handle_input
         update_snake
         update_apple
-        draw_scene
+        update_scene
     done
 
     end_game
