@@ -143,6 +143,34 @@ function handle_input() {
     done
 }
 
+# initialise a scene
+# should be called on startup and SIGWINCH
+function init_scene() {
+    # hide cursor
+    printf '\e[?25l'
+
+    # allocate entire screen worth of lines
+    # last line does not need \n
+    local line
+    for (( line = 0; line < LINES - 1; line++ )); do
+        printf '\n'
+    done
+}
+
+# destroy a scene
+# should be called on exit
+# shellcheck disable=SC2317 # this is reachable via trap
+function destroy_scene() {
+    # deallocate screen
+    local line
+    for (( line = 0; line < LINES; line++ )); do
+        printf '\e[2K\e[1F'
+    done
+
+    # show cursor
+    printf '\e[?25h'
+}
+
 # draws the scene
 function draw_scene() {
     # buffer holding a char for each cell
@@ -195,26 +223,18 @@ function draw_scene() {
         die "bad zbuf"
     fi
 
-    # TODO: this causes scrollback buffer to be filled *a lot*
-    # alternative could be \e[3J... but that clears scrollback fully
-    # clear screen...
-    printf "\e[2J"
-
-    # ...and draw buffer
+    # draw buffer
     for (( line = 0; line < LINES; line++ )); do
+        printf '\e[%d;%dH\e[0K' "$(( line + 1 ))" 1
         for (( column = 0; column < COLUMNS; column++ )); do
-            printf "%b" "${zbuf["${line}:${column}"]}"
+            printf '%b' "${zbuf["${line}:${column}"]}"
         done
-        if (( line < LINES - 1 )); then
-            printf "\n"
-        fi
     done
 }
 
 # end game handler
+# TODO: end screen
 function end_game() {
-    printf "GAME OVER!\n"
-    printf "SCORE: %d\n" "${SCORE}"
     exit 0
 }
 
@@ -334,8 +354,19 @@ function update_apple() {
 function main() {
     parse_args "${@}"
 
+    # required shell options
+    shopt -s checkwinsize
+
+    # initialise LINES/COLUMNS by calling "external" command
+    (:)
+
     [[ -z "${COLUMNS}" ]] && die 'COLUMNS is unset'
     [[ -z "${LINES}" ]] && die 'LINES is unset'
+
+    # setup scene handlers and init
+    trap init_scene WINCH
+    trap destroy_scene EXIT
+    init_scene
 
     while ! "${QUIT}"; do
         do_tick
