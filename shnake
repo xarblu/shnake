@@ -38,6 +38,9 @@ declare -gA ZBUF
 declare -g SLINES
 declare -g SCOLUMNS
 
+# original stty state
+declare -g STTY_ORIG
+
 # game logic
 
 # log to file specified in LOG
@@ -196,6 +199,10 @@ function init_scene() {
     : "${SLINES:="${LINES}"}"
     : "${SCOLUMNS:="${COLUMNS}"}"
 
+    # TODO: not BASH :c
+    : "${STTY_ORIG:="$(stty -g)"}"
+    stty -echo
+
     # hide cursor
     printf '\e[?25l'
 
@@ -219,6 +226,11 @@ function destroy_scene() {
 
     # show cursor
     printf '\e[?25h'
+
+    # TODO: not BASH :c
+    if [[ -n "${STTY_ORIG}" ]]; then
+        stty "${STTY_ORIG}"
+    fi
 }
 
 # draws the scene as defined in ZBUF
